@@ -1,4 +1,4 @@
-﻿from datetime import datetime
+from datetime import datetime
 from cut_strategy import CutAudioStrategy
 from extracte_strategy import ExtractVocalStrategy
 from conver2wav_strategy import ConvertToWavStrategy
@@ -6,7 +6,6 @@ from processors import AudioProcessor
 from classify_strategy import ClassifyAudioStrategy
 from tool import get_project_root
 
-import torch
 from loguru import logger
 import argparse
 
@@ -19,11 +18,15 @@ def initialize_strategies(root_path, model_weights_root, timestamp, device):
     3. 提取人声
     4. 分类说话人
     """
+    # 将音频文件转换为wav格式策略
     convert_to_wav_strategy = ConvertToWavStrategy(root_path, timestamp)
+    # 切割音频文件策略（参数自行调整）
     cut_strategy = CutAudioStrategy(root_path, timestamp, device)
+    # 提取人声策略
     extract_vocal_strategy = ExtractVocalStrategy(
         root_path, model_weights_root, timestamp, device
     )
+    # 分类说话人策略
     classify_strategy = ClassifyAudioStrategy(root_path, timestamp, device)
     # 返回顺序是执行顺序
     return [
@@ -54,6 +57,8 @@ def process_audio(input_audio_path, processor):
 
 
 def main(input_audio_path):
+    import torch
+
     # 获取项目根目录
     root_path = get_project_root()
     # 模型权重根路径

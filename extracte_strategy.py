@@ -1,4 +1,4 @@
-﻿"""
+"""
 提取人声策略
 1. 使用 HP2_all_vocals 模型
 # 2. 使用 onnx_dereverb_By_FoxJoy 模型(太慢，放弃)

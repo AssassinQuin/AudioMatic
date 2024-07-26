@@ -1,11 +1,9 @@
-﻿"""
+"""
 非 wav 音频转为 wav 音频策略
 """
 
 import os
 from loguru import logger
-import ffmpeg
-import shutil
 
 
 class ConvertToWavStrategy:
@@ -30,6 +28,9 @@ class ConvertToWavStrategy:
         返回:
         - output_dir: 输出目录路径
         """
+        import ffmpeg
+        import shutil
+
         # 创建输出目录
         output_dir = os.path.join(
             self.root_path, "process", "converted_to_wav", self.timestamp

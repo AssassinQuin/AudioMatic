@@ -1,13 +1,13 @@
-﻿"""
+"""
 提取分类说话人策略
 使用 FunASR:https://github.com/modelscope/FunASR/blob/main/README_zh.md
+
+参数测试环境：4060 8G
 """
 
-from funasr import AutoModel
 import os
 import torchaudio
 from uuid import uuid4
-from pydub import AudioSegment
 from loguru import logger
 
 from strategy import AudioProcessingStrategy
@@ -36,6 +36,9 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
         参数:
         input_audio_path: 输入音频文件的路径
         """
+        from funasr import AutoModel
+        from pydub import AudioSegment
+
         logger.info(f"开始处理音频文件: {input_audio_path}")
 
         # 使用时在加载

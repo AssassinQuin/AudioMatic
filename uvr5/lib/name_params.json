@@ -1,7 +1,7 @@
 {
-    "equivalent" : [
+    "equivalent": [
         {
-            "model_hash_name" : [
+            "model_hash_name": [
                 {
                     "hash_name": "47939caf0cfe52a0e81442b85b971dfd",
                     "model_params": "lib/lib_v5/modelparams/4band_44100.json",
@@ -92,7 +92,6 @@
                     "model_params": "lib/lib_v5/modelparams/2band_32000.json",
                     "param_name": "2band_32000.json"
                 }
-
             ],
             "v4 Models": [
                 {
@@ -143,7 +142,7 @@
             ]
         }
     ],
-    "User Models" : [
+    "User Models": [
         {
             "1 Band": [
                 {
