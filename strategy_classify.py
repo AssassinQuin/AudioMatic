@@ -6,6 +6,7 @@
 """
 
 import os
+import shutil
 from loguru import logger
 
 from strategy import AudioProcessingStrategy
@@ -128,7 +129,7 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
         logger.info(f"提取分类说话人完成，输出目录：{output_dir}")
         if self.is_delete_last_input:
             logger.info(f"【classifyStrategy】删除输入目录: {input_audio_path}")
-            os.remove(wav_file_path)
+            shutil.rmtree(wav_file_path)
         return output_dir
 
     def save_segment(self, segment, text, speaker, start_time, output_dir):

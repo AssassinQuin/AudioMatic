@@ -2,13 +2,13 @@ import os
 from loguru import logger
 import librosa
 import numpy as np
+import soundfile as sf
+import torch
 from .lib.lib_v5 import nets_61968KB as Nets
 from .lib.lib_v5 import spec_utils
 from .lib.lib_v5.model_param_init import ModelParameters
 from .lib.lib_v5.nets_new import CascadedNet
 from .lib.utils import inference
-import torch
-import torchaudio
 
 parent_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -129,19 +129,18 @@ class AudioPre:
                     ins_root,
                     head + "{}_{}.{}".format(name, self.data["agg"], format),
                 )
-                torchaudio.save(
+                sf.write(
                     bgm_AUDIO,
-                    torch.tensor(wav_instrument).unsqueeze(0).to(self.device),
+                    (np.array(wav_instrument) * 32768).astype("int16"),
                     self.mp.param["sr"],
-                    format=format,
                 )
             else:
                 bgm_AUDIO = os.path.join(
                     ins_root, head + "{}_{}.wav".format(name, self.data["agg"])
                 )
-                torchaudio.save(
+                sf.write(
                     bgm_AUDIO,
-                    torch.tensor(wav_instrument).unsqueeze(0).to(self.device),
+                    (np.array(wav_instrument) * 32768).astype("int16"),
                     self.mp.param["sr"],
                 )
                 if os.path.exists(bgm_AUDIO):
@@ -153,7 +152,7 @@ class AudioPre:
                         try:
                             os.remove(bgm_AUDIO)
                         except Exception as e:
-                            logger.error(e)
+                            logger.error
 
         if vocal_root is not None:
             head = "instrument_" if is_hp3 else "vocal_"
@@ -172,19 +171,18 @@ class AudioPre:
                     vocal_root,
                     head + "{}_{}.{}".format(name, self.data["agg"], format),
                 )
-                torchaudio.save(
+                sf.write(
                     vocal_AUDIO,
-                    torch.tensor(wav_vocals).unsqueeze(0).to(self.device),
+                    (np.array(wav_vocals) * 32768).astype("int16"),
                     self.mp.param["sr"],
-                    format=format,
                 )
             else:
                 vocal_AUDIO = os.path.join(
                     vocal_root, head + "{}_{}.wav".format(name, self.data["agg"])
                 )
-                torchaudio.save(
+                sf.write(
                     vocal_AUDIO,
-                    torch.tensor(wav_vocals).unsqueeze(0).to(self.device),
+                    (np.array(wav_vocals) * 32768).astype("int16"),
                     self.mp.param["sr"],
                 )
                 if os.path.exists(vocal_AUDIO):
@@ -195,8 +193,8 @@ class AudioPre:
                     if os.path.exists(opt_format_path):
                         try:
                             os.remove(vocal_AUDIO)
-                        except Exception as e:
-                            logger.error(e)
+                        except:
+                            pass
 
         if is_hp3:
             return bgm_AUDIO, vocal_AUDIO
@@ -318,19 +316,18 @@ class AudioPreDeEcho:
                     ins_root,
                     "vocal_{}_{}.{}".format(name, self.data["agg"], format),
                 )
-                torchaudio.save(
+                sf.write(
                     bgm_AUDIO,
-                    torch.tensor(wav_instrument).unsqueeze(0).to(self.device),
+                    (np.array(wav_instrument) * 32768).astype("int16"),
                     self.mp.param["sr"],
-                    format=format,
-                )
+                )  #
             else:
                 bgm_AUDIO = os.path.join(
                     ins_root, "vocal_{}_{}.wav".format(name, self.data["agg"])
                 )
-                torchaudio.save(
+                sf.write(
                     bgm_AUDIO,
-                    torch.tensor(wav_instrument).unsqueeze(0).to(self.device),
+                    (np.array(wav_instrument) * 32768).astype("int16"),
                     self.mp.param["sr"],
                 )
                 if os.path.exists(bgm_AUDIO):
@@ -341,8 +338,8 @@ class AudioPreDeEcho:
                     if os.path.exists(opt_format_path):
                         try:
                             os.remove(bgm_AUDIO)
-                        except Exception as e:
-                            logger.error(e)
+                        except:
+                            pass
         if vocal_root is not None:
             if self.data["high_end_process"].startswith("mirroring"):
                 input_high_end_ = spec_utils.mirroring(
@@ -359,19 +356,18 @@ class AudioPreDeEcho:
                     vocal_root,
                     "instrument_{}_{}.{}".format(name, self.data["agg"], format),
                 )
-                torchaudio.save(
+                sf.write(
                     vocal_AUDIO,
-                    torch.tensor(wav_vocals).unsqueeze(0).to(self.device),
+                    (np.array(wav_vocals) * 32768).astype("int16"),
                     self.mp.param["sr"],
-                    format=format,
                 )
             else:
                 vocal_AUDIO = os.path.join(
                     vocal_root, "instrument_{}_{}.wav".format(name, self.data["agg"])
                 )
-                torchaudio.save(
+                sf.write(
                     vocal_AUDIO,
-                    torch.tensor(wav_vocals).unsqueeze(0).to(self.device),
+                    (np.array(wav_vocals) * 32768).astype("int16"),
                     self.mp.param["sr"],
                 )
                 if os.path.exists(vocal_AUDIO):
@@ -382,6 +378,6 @@ class AudioPreDeEcho:
                     if os.path.exists(opt_format_path):
                         try:
                             os.remove(vocal_AUDIO)
-                        except Exception as e:
-                            logger.error(e)
+                        except:
+                            pass
         return bgm_AUDIO, vocal_AUDIO

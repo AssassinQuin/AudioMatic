@@ -1,4 +1,5 @@
 ﻿import os
+import shutil
 from uuid import uuid4
 from loguru import logger
 
@@ -66,6 +67,6 @@ class MergeAudioStrategy(AudioProcessingStrategy):
         )  # 将数据移回CPU并保存
         if self.is_delete_last_input:
             logger.info(f"【mergeStrategy】删除输入目录: {input_audio_path}")
-            os.remove(input_audio_path)
+            shutil.rmtree(input_audio_path)
 
         return output_filename

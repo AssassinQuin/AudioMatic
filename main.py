@@ -27,7 +27,7 @@ def initialize_strategies(root_path, model_weights_root, timestamp, device):
     cut_strategy = CutAudioStrategy(root_path, timestamp, device)
     # 提取人声策略
     extract_vocal_strategy = ExtractVocalStrategy(
-        root_path, model_weights_root, timestamp, device
+        root_path, timestamp, device, model_weights_root
     )
     # 分类说话人策略
     classify_strategy = ClassifyAudioStrategy(root_path, timestamp, device)

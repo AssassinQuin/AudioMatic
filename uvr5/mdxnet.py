@@ -170,11 +170,14 @@ class Predictor:
                         -_ort.run(None, {"input": -spek.cpu().numpy()})[0] * 0.5
                         + _ort.run(None, {"input": spek.cpu().numpy()})[0] * 0.5
                     )
-                    tar_waves = model.istft(torch.tensor(spec_pred).to(cpu))
+                    tar_waves = model.istft(
+                        torch.tensor(spec_pred, dtype=torch.complex64).to(cpu)
+                    )
                 else:
                     tar_waves = model.istft(
                         torch.tensor(
-                            _ort.run(None, {"input": spek.cpu().numpy()})[0]
+                            _ort.run(None, {"input": spek.cpu().numpy()})[0],
+                            dtype=torch.complex64,
                         ).to(cpu)
                     )
                 tar_signal = (
