@@ -1,8 +1,8 @@
 ﻿import os
 import ffmpeg
 import torch
-from AudioMatic.uvr5.mdxnet import MDXNetDereverb
-from AudioMatic.uvr5.vr import AudioPre, AudioPreDeEcho
+from uvr5.mdxnet import MDXNetDereverb
+from uvr5.vr import AudioPre, AudioPreDeEcho
 from loguru import logger
 
 
@@ -80,7 +80,7 @@ class uvr:
                     info = ffmpeg.probe(file_path, cmd="ffprobe")
                     if (
                         info["streams"][0]["channels"] == 2
-                        and info["streams"][0]["sample_rate"] == "22050"
+                        and info["streams"][0]["sample_rate"] == "44100"
                     ):
                         need_reformat = 0
                         processor._path_audio_(
@@ -100,7 +100,7 @@ class uvr:
                         os.path.basename(file_path),
                     )
                     os.system(
-                        f'ffmpeg -i "{file_path}" -vn -acodec pcm_s16le -ac 2 -ar 22050 "{tmp_path}" -y'
+                        f'ffmpeg -i "{file_path}" -vn -acodec pcm_s16le -ac 2 -ar 44100 "{tmp_path}" -y'
                     )
                     file_path = tmp_path
                 try:

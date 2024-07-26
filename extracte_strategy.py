@@ -9,7 +9,7 @@
 
 import os
 from uvr5.uvr_audio_process import uvr
-from .strategy import AudioProcessingStrategy
+from strategy import AudioProcessingStrategy
 from loguru import logger
 
 
@@ -46,7 +46,7 @@ class ExtractVocalStrategy(AudioProcessingStrategy):
         logger.info(f"开始提取人声，输入目录:{input_audio_path}")
         self.model = uvr(self.model_weights_root, self.tmp_path, self.device)
         output_path = self.handle_HP2_all_vocals(input_audio_path)
-        output_path = self.handle_onnx_dereverb_By_FoxJoy(output_path)
+        # output_path = self.handle_onnx_dereverb_By_FoxJoy(output_path)
         output_path = self.handle_VR_DeEchoAggressive(output_path)
         logger.info(f"提取人声完成，输出目录:{output_path}")
         return output_path

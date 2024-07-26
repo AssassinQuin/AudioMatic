@@ -6,7 +6,7 @@
 4. 获取不同说话人声与文本素材
 """
 
-from .strategy import AudioProcessingStrategy
+from strategy import AudioProcessingStrategy
 
 
 class AudioProcessor:

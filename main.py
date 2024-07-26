@@ -76,7 +76,7 @@ if __name__ == "__main__":
         type=str,
         help="输入音频目录的路径。",
         nargs="?",
-        default="/root/code/GPT-SoVITS/audio/test_1",
+        default="/root/code/AudioMatic/test_1",
     )
     args = parser.parse_args()
     main(args.input_audio_path)

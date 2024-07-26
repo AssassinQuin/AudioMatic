@@ -11,7 +11,7 @@ from uuid import uuid4
 from pydub import AudioSegment
 from loguru import logger
 
-from .strategy import AudioProcessingStrategy
+from strategy import AudioProcessingStrategy
 
 
 class ClassifyAudioStrategy(AudioProcessingStrategy):
@@ -49,7 +49,7 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
         wav_file_path = self.merge_wav_files(input_audio_path)
         res = self.model.generate(
             input=wav_file_path,
-            batch_size_s=300,
+            batch_size_s=30,
             cache={},
             use_itn=True,
             vad_kwargs={"max_single_segment_time": 60000},

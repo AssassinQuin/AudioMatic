@@ -6,7 +6,7 @@ import torchaudio
 import os
 from loguru import logger
 
-from .strategy import AudioProcessingStrategy
+from strategy import AudioProcessingStrategy
 
 
 class CutAudioStrategy(AudioProcessingStrategy):
