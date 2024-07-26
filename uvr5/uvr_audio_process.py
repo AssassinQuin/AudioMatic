@@ -1,9 +1,7 @@
 import os
 import ffmpeg
-import torch
-from uvr5.mdxnet import MDXNetDereverb
-from uvr5.vr import AudioPre, AudioPreDeEcho
 from loguru import logger
+import time
 
 
 class uvr:
@@ -37,6 +35,11 @@ class uvr:
         denoise_strength: 降噪强度
         output_format: 输出音频格式
         """
+
+        from uvr5.vr import AudioPre, AudioPreDeEcho
+        from uvr5.mdxnet import MDXNetDereverb
+        import torch
+
         os.makedirs(vocal_output_dir, exist_ok=True)
         os.makedirs(instrumental_output_dir, exist_ok=True)
 
@@ -70,12 +73,15 @@ class uvr:
 降噪强度: {denoise_strength}
 输出音频格式: {output_format}
 """)
-
+            idx = 0
             for file_path in audio_files:
+                idx += 1
+                logger.info(f"处理文件: {file_path} 已处理: {idx}/{len(audio_files)}")
                 if not os.path.isfile(file_path):
                     continue
                 need_reformat = 1
                 processed = 0
+                start_time = time.time()
                 try:
                     info = ffmpeg.probe(file_path, cmd="ffprobe")
                     if (
@@ -115,6 +121,8 @@ class uvr:
 
                 except Exception as e:
                     logger.error(f"处理音频时出错: {e}", exc_info=True)
+                end_time = time.time()
+                logger.info(f"文件 {file_path} 处理耗时: {end_time - start_time} 秒")
         except Exception as e:
             logger.error(f"处理过程中发生错误: {e}", exc_info=True)
         finally:

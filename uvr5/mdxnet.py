@@ -2,8 +2,8 @@ import os
 from loguru import logger
 import librosa
 import numpy as np
-import soundfile as sf
 import torch
+import torchaudio
 from tqdm import tqdm
 
 cpu = torch.device("cpu" if not torch.cuda.is_available() else "cuda")
@@ -71,17 +71,9 @@ class ConvTDFNetTrim:
         )
         return x.reshape([-1, c, self.chunk_size])
 
-
-def get_models(device, dim_f, dim_t, n_fft):
-    return ConvTDFNetTrim(
-        device=device,
-        model_name="Conv-TDF",
-        target_name="vocals",
-        L=11,
-        dim_f=dim_f,
-        dim_t=dim_t,
-        n_fft=n_fft,
-    )
+    def save_audio(self, path, audio, sample_rate):
+        audio = audio.cpu() if audio.device != cpu else audio
+        torchaudio.save(path, audio, sample_rate)
 
 
 class Predictor:
@@ -90,7 +82,7 @@ class Predictor:
 
         logger.info(ort.get_available_providers())
         self.args = args
-        self.model_ = get_models(
+        self.model_ = self.get_models(
             device=cpu, dim_f=args.dim_f, dim_t=args.dim_t, n_fft=args.n_fft
         )
         self.model = ort.InferenceSession(
@@ -102,6 +94,17 @@ class Predictor:
             ],
         )
         logger.info("ONNX load done")
+
+    def get_models(self, device, dim_f, dim_t, n_fft):
+        return ConvTDFNetTrim(
+            device=device,
+            model_name="Conv-TDF",
+            target_name="vocals",
+            L=11,
+            dim_f=dim_f,
+            dim_t=dim_t,
+            n_fft=n_fft,
+        )
 
     def demix(self, mix):
         samples = mix.shape[-1]
@@ -208,14 +211,14 @@ class Predictor:
         opt = sources[0].T
         if format in ["wav", "flac"]:
             vocal_AUDIO = "%s/%s_main_vocal.%s" % (vocal_root, basename, format)
-            sf.write(vocal_AUDIO, mix - opt, rate)
+            torchaudio.save(vocal_AUDIO, torch.tensor(mix - opt).unsqueeze(0), rate)
             bgm_AUDIO = "%s/%s_others.%s" % (others_root, basename, format)
-            sf.write(bgm_AUDIO, opt, rate)
+            torchaudio.save(bgm_AUDIO, torch.tensor(opt).unsqueeze(0), rate)
         else:
             vocal_AUDIO = "%s/%s_main_vocal.wav" % (vocal_root, basename)
             bgm_AUDIO = "%s/%s_others.wav" % (others_root, basename)
-            sf.write(vocal_AUDIO, mix - opt, rate)
-            sf.write(bgm_AUDIO, opt, rate)
+            torchaudio.save(vocal_AUDIO, torch.tensor(mix - opt).unsqueeze(0), rate)
+            torchaudio.save(bgm_AUDIO, torch.tensor(opt).unsqueeze(0), rate)
             opt_path_vocal = vocal_AUDIO[:-4] + ".%s" % format
             opt_path_other = bgm_AUDIO[:-4] + ".%s" % format
             if os.path.exists(vocal_AUDIO):
@@ -225,15 +228,15 @@ class Predictor:
                 if os.path.exists(opt_path_vocal):
                     try:
                         os.remove(vocal_AUDIO)
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.error(e)
             if os.path.exists(bgm_AUDIO):
                 os.system("ffmpeg -i %s -vn %s -q:a 2 -y" % (bgm_AUDIO, opt_path_other))
                 if os.path.exists(opt_path_other):
                     try:
                         os.remove(bgm_AUDIO)
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.error(e)
         return vocal_AUDIO, bgm_AUDIO
 
 

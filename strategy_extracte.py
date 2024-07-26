@@ -86,6 +86,7 @@ class ExtractVocalStrategy(AudioProcessingStrategy):
         if self.is_delete_last_input:
             logger.info(f"【HP2_all_vocals】删除输入目录:{input_audio_path}")
             os.remove(input_audio_path)
+            os.remove(instrumental_output_path)
         return vocal_output_path
 
     def handle_onnx_dereverb_By_FoxJoy(self, input_audio_path):
@@ -122,6 +123,8 @@ class ExtractVocalStrategy(AudioProcessingStrategy):
         if self.is_delete_last_input:
             logger.info(f"【onnx_dereverb_By_FoxJoy】删除输入目录:{input_audio_path}")
             os.remove(input_audio_path)
+            os.remove(instrumental_output_path)
+
         return vocal_output_path
 
     def handle_VR_DeEchoAggressive(self, input_audio_path):
@@ -156,6 +159,7 @@ class ExtractVocalStrategy(AudioProcessingStrategy):
         if self.is_delete_last_input:
             logger.info(f"【VR-DeEchoAggressive】删除输入目录:{input_audio_path}")
             os.remove(input_audio_path)
+            os.remove(instrumental_output_path)
         return vocal_output_path
 
 

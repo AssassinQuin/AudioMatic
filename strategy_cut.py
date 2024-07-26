@@ -1,48 +1,23 @@
-"""
-切割策略
-
-参数测试环境：4060 8G
-"""
-
 import torchaudio
 import os
 from loguru import logger
-
 from strategy import AudioProcessingStrategy
 
 
 class CutAudioStrategy(AudioProcessingStrategy):
     def __init__(self, root_path, timestamp, device, is_delete_last_input=True):
-        """
-        初始化切割策略类。
-
-        参数:
-        root_path: 根目录路径
-        timestamp: 时间戳
-        device: 设备类型（cuda 或 cpu）
-        """
         self.root_path = root_path
         self.timestamp = timestamp
         self.device = device
         self.is_delete_last_input = is_delete_last_input
 
     def process(self, input_audio_path):
-        """
-        处理音频文件并创建输出目录。
-
-        参数:
-        input_audio_path: 输入音频文件的路径。
-
-        返回:
-        输出目录路径。
-        """
         logger.info(f"【cutAudioStrategy】开始处理，输入目录: {input_audio_path}")
 
         output_path = os.path.join(self.root_path, "process", "cut", self.timestamp)
         if not os.path.exists(output_path):
             os.makedirs(output_path)
 
-        # 处理目录中的所有 WAV 文件
         self.split_all_wav_files_in_directory(input_audio_path, output_path)
 
         logger.info(f"【cutAudioStrategy】处理结束，输出目录: {output_path}")
@@ -55,19 +30,7 @@ class CutAudioStrategy(AudioProcessingStrategy):
     def find_silence_intervals(
         self, waveform, sample_rate, min_silence_len=1000, silence_thresh=-40
     ):
-        """
-        查找音频样本中的静音间隔。
-
-        参数:
-        waveform: 音频样本。
-        sample_rate: 音频帧率。
-        min_silence_len: 最小静音长度，以毫秒为单位。
-        silence_thresh: 静音阈值，以分贝为单位。
-
-        返回:
-        静音间隔列表。
-        """
-        silence_thresh = 10 ** (silence_thresh / 20)  # 将分贝转换为幅度值
+        silence_thresh = 10 ** (silence_thresh / 20)
         hop_length = int(sample_rate * (min_silence_len / 1000))
         silences = []
 
@@ -76,7 +39,6 @@ class CutAudioStrategy(AudioProcessingStrategy):
             if chunk.abs().mean() < silence_thresh:
                 silences.append((i, i + hop_length))
 
-        # 计算静音中间的位置
         silence_midpoints = [(start + end) // 2 for start, end in silences]
 
         return silence_midpoints
@@ -84,14 +46,6 @@ class CutAudioStrategy(AudioProcessingStrategy):
     def split_wav_on_pauses(
         self, filename, output_path, max_segment_duration=10 * 60 * 1000
     ):
-        """
-        根据暂停和最大段长度将WAV文件拆分为多个段。
-
-        参数:
-        filename: WAV文件的路径。
-        output_path: 输出路径。
-        max_segment_duration: 段的最大持续时间（以毫秒为单位）。
-        """
         waveform, sample_rate = torchaudio.load(filename, normalize=True)
         waveform = waveform.to(self.device)
         segments = []
@@ -101,10 +55,7 @@ class CutAudioStrategy(AudioProcessingStrategy):
 
         while start < waveform.shape[1]:
             end = start + int(max_segment_duration * sample_rate / 1000)
-            if end >= waveform.shape[1]:
-                logger.info(f"到达音频末尾。从 {start} 到结尾添加最后一段。")
-                segments.append(waveform[:, start:])
-                break
+            end = min(end, waveform.shape[1])  # 确保 end 不超过音频长度
 
             segment = waveform[:, start:end]
             logger.info(f"处理从 {start} 到 {end} 的段")
@@ -112,15 +63,19 @@ class CutAudioStrategy(AudioProcessingStrategy):
             pauses = self.find_silence_intervals(
                 segment, sample_rate, min_silence_len=1000, silence_thresh=-40
             )
-            if pauses:
-                nearest_pause = pauses[0]  # 使用第一个找到的静音中间点
-                logger.info(f"在 {nearest_pause} 处找到暂停。将在此点拆分。")
-                segments.append(waveform[:, start:nearest_pause])
-                start = nearest_pause
+            valid_pauses = [
+                pause for pause in pauses if pause > 0 and pause < segment.shape[1]
+            ]  # 过滤有效的暂停点
+
+            if valid_pauses:
+                nearest_pause = valid_pauses[0]
+                logger.info(f"在 {start + nearest_pause} 处找到暂停。将在此点拆分。")
+                segments.append(waveform[:, start : start + nearest_pause])
+                start += nearest_pause
             else:
                 logger.info(f"在段内未找到暂停。将在 {end} 处拆分。")
                 segments.append(segment)
-                start += int(max_segment_duration * sample_rate / 1000)
+                start = end  # 继续处理下一段
 
         base_filename = os.path.splitext(os.path.basename(filename))[0]
         for i, segment in enumerate(segments):
@@ -131,14 +86,6 @@ class CutAudioStrategy(AudioProcessingStrategy):
         logger.info(f"完成拆分文件: {filename}")
 
     def split_all_wav_files_in_directory(self, directory, output_path):
-        """
-        处理目录中的所有 WAV 文件。
-
-        参数:
-        directory: 包含 WAV 文件的目录。
-        output_path: 输出路径。
-        """
-        # 获取目录中所有以 .wav 结尾的文件名，并按升序排序
         wav_files = sorted([f for f in os.listdir(directory) if f.endswith(".wav")])
 
         for filename in wav_files:
@@ -150,10 +97,10 @@ if __name__ == "__main__":
     from tool import get_project_root
     import torch
 
-    root_path = get_project_root()  # 获取项目根目录
-    model_weights_root = f"{root_path}/uvr5/uvr5_weights"  # 模型权重根路径
+    root_path = get_project_root()
+    model_weights_root = f"{root_path}/uvr5/uvr5_weights"
     timestamp = "20240726_105018"
-    device = "cuda" if torch.cuda.is_available() else "cpu"  # 选择设备（GPU或CPU）
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     classify_strategy = CutAudioStrategy(root_path, timestamp, device, False)
     classify_strategy.process(
         "/root/code/AudioMatic/process/VR-DeEchoAggressive_vocal/20240726_105018"

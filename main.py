@@ -1,9 +1,10 @@
 from datetime import datetime
-from cut_strategy import CutAudioStrategy
-from extracte_strategy import ExtractVocalStrategy
-from conver2wav_strategy import ConvertToWavStrategy
+from strategy_cut import CutAudioStrategy
+from strategy_extracte import ExtractVocalStrategy
+from strategy_conver2wav import ConvertToWavStrategy
 from processors import AudioProcessor
-from classify_strategy import ClassifyAudioStrategy
+from strategy_classify import ClassifyAudioStrategy
+from strategy_merge import MergeAudioStrategy
 from tool import get_project_root
 
 from loguru import logger
@@ -20,6 +21,8 @@ def initialize_strategies(root_path, model_weights_root, timestamp, device):
     """
     # 将音频文件转换为wav格式策略
     convert_to_wav_strategy = ConvertToWavStrategy(root_path, timestamp)
+    # 合并wav策略
+    merge_audio_strategy = MergeAudioStrategy(root_path, timestamp, device)
     # 切割音频文件策略（参数自行调整）
     cut_strategy = CutAudioStrategy(root_path, timestamp, device)
     # 提取人声策略
@@ -33,6 +36,7 @@ def initialize_strategies(root_path, model_weights_root, timestamp, device):
         convert_to_wav_strategy,
         cut_strategy,
         extract_vocal_strategy,
+        merge_audio_strategy,
         classify_strategy,
     ]
 

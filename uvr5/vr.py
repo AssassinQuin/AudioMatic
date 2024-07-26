@@ -2,13 +2,13 @@ import os
 from loguru import logger
 import librosa
 import numpy as np
-import soundfile as sf
-import torch
 from .lib.lib_v5 import nets_61968KB as Nets
 from .lib.lib_v5 import spec_utils
 from .lib.lib_v5.model_param_init import ModelParameters
 from .lib.lib_v5.nets_new import CascadedNet
 from .lib.utils import inference
+import torch
+import torchaudio
 
 parent_directory = os.path.dirname(os.path.abspath(__file__))
 
@@ -18,10 +18,8 @@ class AudioPre:
         self.model_path = model_path
         self.device = device
         self.data = {
-            # Processing Options
             "postprocess": False,
             "tta": tta,
-            # Constants
             "window_size": 512,
             "agg": agg,
             "high_end_process": "mirroring",
@@ -51,16 +49,13 @@ class AudioPre:
             os.makedirs(ins_root, exist_ok=True)
         if vocal_root is not None:
             os.makedirs(vocal_root, exist_ok=True)
-        X_wave, y_wave, X_spec_s, y_spec_s = {}, {}, {}, {}
+        X_wave, X_spec_s = {}, {}
         bands_n = len(self.mp.param["band"])
-        # print(bands_n)
+
         for d in range(bands_n, 0, -1):
             bp = self.mp.param["band"][d]
             if d == bands_n:  # high-end band
-                (
-                    X_wave[d],
-                    _,
-                ) = librosa.core.load(  # 理论上librosa读取可能对某些音频有bug，应该上ffmpeg读取，但是太麻烦了弃坑
+                X_wave[d], _ = librosa.load(
                     music_file,
                     sr=bp["sr"],
                     mono=False,
@@ -70,13 +65,17 @@ class AudioPre:
                 if X_wave[d].ndim == 1:
                     X_wave[d] = np.asfortranarray([X_wave[d], X_wave[d]])
             else:  # lower bands
-                X_wave[d] = librosa.core.resample(
+                X_wave[d] = librosa.resample(
                     X_wave[d + 1],
                     orig_sr=self.mp.param["band"][d + 1]["sr"],
                     target_sr=bp["sr"],
                     res_type=bp["res_type"],
                 )
-            # Stft of wave source
+
+            if not np.all(np.isfinite(X_wave[d])):
+                logger.error(f"Audio buffer for band {d} is not finite everywhere.")
+                return None
+
             X_spec_s[d] = spec_utils.wave_to_spectrogram_mt(
                 X_wave[d],
                 bp["hl"],
@@ -85,7 +84,7 @@ class AudioPre:
                 self.mp.param["mid_side_b2"],
                 self.mp.param["reverse"],
             )
-            # pdb.set_trace()
+
             if d == bands_n and self.data["high_end_process"] != "none":
                 input_high_end_h = (bp["n_fft"] // 2 - bp["crop_stop"]) + (
                     self.mp.param["pre_filter_stop"] - self.mp.param["pre_filter_start"]
@@ -104,14 +103,13 @@ class AudioPre:
             pred, X_mag, X_phase = inference(
                 X_spec_m, self.device, self.model, aggressiveness, self.data
             )
-        # Postprocess
         if self.data["postprocess"]:
             pred_inv = np.clip(X_mag - pred, 0, np.inf)
             pred = spec_utils.mask_silence(pred, pred_inv)
         y_spec_m = pred * X_phase
         v_spec_m = X_spec_m - y_spec_m
 
-        if is_hp3 == True:
+        if is_hp3:
             ins_root, vocal_root = vocal_root, ins_root
 
         if ins_root is not None:
@@ -125,27 +123,25 @@ class AudioPre:
             else:
                 wav_instrument = spec_utils.cmb_spectrogram_to_wave(y_spec_m, self.mp)
             logger.info("%s instruments done" % name)
-            if is_hp3 == True:
-                head = "vocal_"
-            else:
-                head = "instrument_"
+            head = "vocal_" if is_hp3 else "instrument_"
             if format in ["wav", "flac"]:
                 bgm_AUDIO = os.path.join(
                     ins_root,
                     head + "{}_{}.{}".format(name, self.data["agg"], format),
                 )
-                sf.write(
+                torchaudio.save(
                     bgm_AUDIO,
-                    (np.array(wav_instrument) * 32768).astype("int16"),
+                    torch.tensor(wav_instrument).unsqueeze(0).to(self.device),
                     self.mp.param["sr"],
-                )  #
+                    format=format,
+                )
             else:
                 bgm_AUDIO = os.path.join(
                     ins_root, head + "{}_{}.wav".format(name, self.data["agg"])
                 )
-                sf.write(
+                torchaudio.save(
                     bgm_AUDIO,
-                    (np.array(wav_instrument) * 32768).astype("int16"),
+                    torch.tensor(wav_instrument).unsqueeze(0).to(self.device),
                     self.mp.param["sr"],
                 )
                 if os.path.exists(bgm_AUDIO):
@@ -156,13 +152,11 @@ class AudioPre:
                     if os.path.exists(opt_format_path):
                         try:
                             os.remove(bgm_AUDIO)
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.error(e)
+
         if vocal_root is not None:
-            if is_hp3 == True:
-                head = "instrument_"
-            else:
-                head = "vocal_"
+            head = "instrument_" if is_hp3 else "vocal_"
             if self.data["high_end_process"].startswith("mirroring"):
                 input_high_end_ = spec_utils.mirroring(
                     self.data["high_end_process"], v_spec_m, input_high_end, self.mp
@@ -178,18 +172,19 @@ class AudioPre:
                     vocal_root,
                     head + "{}_{}.{}".format(name, self.data["agg"], format),
                 )
-                sf.write(
+                torchaudio.save(
                     vocal_AUDIO,
-                    (np.array(wav_vocals) * 32768).astype("int16"),
+                    torch.tensor(wav_vocals).unsqueeze(0).to(self.device),
                     self.mp.param["sr"],
+                    format=format,
                 )
             else:
                 vocal_AUDIO = os.path.join(
                     vocal_root, head + "{}_{}.wav".format(name, self.data["agg"])
                 )
-                sf.write(
+                torchaudio.save(
                     vocal_AUDIO,
-                    (np.array(wav_vocals) * 32768).astype("int16"),
+                    torch.tensor(wav_vocals).unsqueeze(0).to(self.device),
                     self.mp.param["sr"],
                 )
                 if os.path.exists(vocal_AUDIO):
@@ -200,9 +195,10 @@ class AudioPre:
                     if os.path.exists(opt_format_path):
                         try:
                             os.remove(vocal_AUDIO)
-                        except:
-                            pass
-        if is_hp3 == True:
+                        except Exception as e:
+                            logger.error(e)
+
+        if is_hp3:
             return bgm_AUDIO, vocal_AUDIO
         return vocal_AUDIO, bgm_AUDIO
 
@@ -322,18 +318,19 @@ class AudioPreDeEcho:
                     ins_root,
                     "vocal_{}_{}.{}".format(name, self.data["agg"], format),
                 )
-                sf.write(
+                torchaudio.save(
                     bgm_AUDIO,
-                    (np.array(wav_instrument) * 32768).astype("int16"),
+                    torch.tensor(wav_instrument).unsqueeze(0).to(self.device),
                     self.mp.param["sr"],
-                )  #
+                    format=format,
+                )
             else:
                 bgm_AUDIO = os.path.join(
                     ins_root, "vocal_{}_{}.wav".format(name, self.data["agg"])
                 )
-                sf.write(
+                torchaudio.save(
                     bgm_AUDIO,
-                    (np.array(wav_instrument) * 32768).astype("int16"),
+                    torch.tensor(wav_instrument).unsqueeze(0).to(self.device),
                     self.mp.param["sr"],
                 )
                 if os.path.exists(bgm_AUDIO):
@@ -344,8 +341,8 @@ class AudioPreDeEcho:
                     if os.path.exists(opt_format_path):
                         try:
                             os.remove(bgm_AUDIO)
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.error(e)
         if vocal_root is not None:
             if self.data["high_end_process"].startswith("mirroring"):
                 input_high_end_ = spec_utils.mirroring(
@@ -362,18 +359,19 @@ class AudioPreDeEcho:
                     vocal_root,
                     "instrument_{}_{}.{}".format(name, self.data["agg"], format),
                 )
-                sf.write(
+                torchaudio.save(
                     vocal_AUDIO,
-                    (np.array(wav_vocals) * 32768).astype("int16"),
+                    torch.tensor(wav_vocals).unsqueeze(0).to(self.device),
                     self.mp.param["sr"],
+                    format=format,
                 )
             else:
                 vocal_AUDIO = os.path.join(
                     vocal_root, "instrument_{}_{}.wav".format(name, self.data["agg"])
                 )
-                sf.write(
+                torchaudio.save(
                     vocal_AUDIO,
-                    (np.array(wav_vocals) * 32768).astype("int16"),
+                    torch.tensor(wav_vocals).unsqueeze(0).to(self.device),
                     self.mp.param["sr"],
                 )
                 if os.path.exists(vocal_AUDIO):
@@ -384,6 +382,6 @@ class AudioPreDeEcho:
                     if os.path.exists(opt_format_path):
                         try:
                             os.remove(vocal_AUDIO)
-                        except:
-                            pass
+                        except Exception as e:
+                            logger.error(e)
         return bgm_AUDIO, vocal_AUDIO
