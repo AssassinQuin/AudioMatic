@@ -5,7 +5,6 @@
 
 from funasr import AutoModel
 import os
-import torch
 import torchaudio
 from uuid import uuid4
 from pydub import AudioSegment
@@ -15,7 +14,7 @@ from strategy import AudioProcessingStrategy
 
 
 class ClassifyAudioStrategy(AudioProcessingStrategy):
-    def __init__(self, root_path, timestamp, device):
+    def __init__(self, root_path, timestamp, device, is_delete_last_input=True):
         """
         初始化提取分类说话人策略类。
 
@@ -28,6 +27,7 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
         self.timestamp = timestamp
         self.device = device
         self.model = None
+        self.is_delete_last_input = is_delete_last_input
 
     def process(self, input_audio_path):
         """
@@ -42,6 +42,7 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
         self.model = AutoModel(
             model="iic/speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
             vad_model="iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+            vad_kwargs={"max_single_segment_time": 60000},
             punc_model="iic/punc_ct-transformer_cn-en-common-vocab471067-large",
             spk_model="iic/speech_campplus_sv_zh-cn_16k-common",
             device=self.device,
@@ -49,12 +50,11 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
         wav_file_path = self.merge_wav_files(input_audio_path)
         res = self.model.generate(
             input=wav_file_path,
-            batch_size_s=30,
+            batch_size_s=60,
             cache={},
             use_itn=True,
-            vad_kwargs={"max_single_segment_time": 60000},
             merge_vad=True,
-            merge_length_s=20,
+            merge_length_s=60,
         )
 
         audio = AudioSegment.from_wav(wav_file_path)
@@ -79,16 +79,19 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
             start_time = timestamps[0][0]
             # 使用 timestamp 最后一个元素的最后一个时间戳作为片段结束时间
             end_time = timestamps[-1][-1]
-
-            # 检查时间戳值
-            logger.info(f"处理片段：start={start_time} ms, end={end_time} ms")
-
             # 生成音频片段
             segment = audio[start_time:end_time]
-            logger.info(f"音频片段长度：{len(segment)} ms - {len(audio)} ms")
+
+            # 检查时间戳值
+            logger.info(f"""
+处理片段：start={start_time} ms, end={end_time} ms
+音频片段长度：{len(segment)} ms - {len(audio)} ms
+识别文本：{text}
+说话人：{speaker}
+""")
 
             # 若 speaker 是同个人，时长小于 15s，则合并多个音频片段到一个音频片段
-            if current_speaker == speaker and (end_time - current_start_time) < 15000:
+            if current_speaker == speaker and (end_time - current_start_time) < 22000:
                 if current_segment is None:
                     current_segment = segment
                 else:
@@ -122,6 +125,9 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
             )
 
         logger.info(f"提取分类说话人完成，输出目录：{output_dir}")
+        if self.is_delete_last_input:
+            logger.info(f"【classifyStrategy】删除输入目录: {input_audio_path}")
+            os.remove(wav_file_path)
         return output_dir
 
     def save_segment(self, segment, text, speaker, start_time, output_dir):
@@ -191,3 +197,17 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
         torchaudio.save(output_filename, merged_waveform, sample_rate)
 
         return output_filename
+
+
+if __name__ == "__main__":
+    import torch
+    from tool import get_project_root
+
+    root_path = get_project_root()  # 获取项目根目录
+    model_weights_root = f"{root_path}/uvr5/uvr5_weights"  # 模型权重根路径
+    timestamp = "20240726_105018"
+    device = "cuda" if torch.cuda.is_available() else "cpu"  # 选择设备（GPU或CPU）
+    classify_strategy = ClassifyAudioStrategy(root_path, timestamp, device, False)
+    classify_strategy.process(
+        "/root/code/AudioMatic/process/VR-DeEchoAggressive_vocal/20240726_105018"
+    )

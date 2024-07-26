@@ -75,3 +75,15 @@ class ConvertToWavStrategy:
 
         # 返回输出目录路径
         return output_dir
+
+
+if __name__ == "__main__":
+    from tool import get_project_root
+
+    root_path = get_project_root()  # 获取项目根目录
+    model_weights_root = f"{root_path}/uvr5/uvr5_weights"  # 模型权重根路径
+    timestamp = "20240726_105018"
+    classify_strategy = ConvertToWavStrategy(root_path, timestamp)
+    classify_strategy.process(
+        "/root/code/AudioMatic/process/VR-DeEchoAggressive_vocal/20240726_105018"
+    )
