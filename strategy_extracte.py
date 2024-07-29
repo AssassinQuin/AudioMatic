@@ -21,7 +21,7 @@ class ExtractVocalStrategy(AudioProcessingStrategy):
         timestamp,
         device,
         model_weights_root="./uvr5/uvr5_weights",
-        is_delete_last_input=False,
+        is_delete_last_input=True,
     ):
         """
         初始化提取人声策略类。

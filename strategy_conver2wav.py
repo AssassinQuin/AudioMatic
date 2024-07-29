@@ -43,8 +43,16 @@ class ConvertToWavStrategy:
             for name in os.listdir(input_audio_path)
         ]
 
-        # 常见的音频文件扩展名
-        common_audio_extensions = {".mp3", ".flac", ".aac", ".m4a", ".ogg", ".wav"}
+        # 常见的音频文件扩展名，包括 MP4
+        common_audio_extensions = {
+            ".mp3",
+            ".flac",
+            ".aac",
+            ".m4a",
+            ".ogg",
+            ".wav",
+            ".mp4",
+        }
 
         for file_path in all_files:
             if not os.path.isfile(file_path):

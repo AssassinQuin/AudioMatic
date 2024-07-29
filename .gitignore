@@ -4,3 +4,4 @@ process
 uvr5_weights/*
 .wav
 tmp_data/*
+*log
