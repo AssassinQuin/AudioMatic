@@ -5,8 +5,7 @@ import os
 
 import librosa
 import numpy as np
-import soundfile as sf
-from tqdm import tqdm
+import torch
 
 
 def crop_center(h1, h2):
@@ -25,65 +24,6 @@ def crop_center(h1, h2):
     h1 = h1[:, :, :, s_time:e_time]
 
     return h1
-
-
-def wave_to_spectrogram(
-    wave, hop_length, n_fft, mid_side=False, mid_side_b2=False, reverse=False
-):
-    if reverse:
-        wave_left = np.flip(np.asfortranarray(wave[0]))
-        wave_right = np.flip(np.asfortranarray(wave[1]))
-    elif mid_side:
-        wave_left = np.asfortranarray(np.add(wave[0], wave[1]) / 2)
-        wave_right = np.asfortranarray(np.subtract(wave[0], wave[1]))
-    elif mid_side_b2:
-        wave_left = np.asfortranarray(np.add(wave[1], wave[0] * 0.5))
-        wave_right = np.asfortranarray(np.subtract(wave[0], wave[1] * 0.5))
-    else:
-        wave_left = np.asfortranarray(wave[0])
-        wave_right = np.asfortranarray(wave[1])
-
-    spec_left = librosa.stft(wave_left, n_fft=n_fft, hop_length=hop_length)
-    spec_right = librosa.stft(wave_right, n_fft=n_fft, hop_length=hop_length)
-
-    spec = np.asfortranarray([spec_left, spec_right])
-
-    return spec
-
-
-def wave_to_spectrogram_mt(
-    wave, hop_length, n_fft, mid_side=False, mid_side_b2=False, reverse=False
-):
-    import threading
-
-    if reverse:
-        wave_left = np.flip(np.asfortranarray(wave[0]))
-        wave_right = np.flip(np.asfortranarray(wave[1]))
-    elif mid_side:
-        wave_left = np.asfortranarray(np.add(wave[0], wave[1]) / 2)
-        wave_right = np.asfortranarray(np.subtract(wave[0], wave[1]))
-    elif mid_side_b2:
-        wave_left = np.asfortranarray(np.add(wave[1], wave[0] * 0.5))
-        wave_right = np.asfortranarray(np.subtract(wave[0], wave[1] * 0.5))
-    else:
-        wave_left = np.asfortranarray(wave[0])
-        wave_right = np.asfortranarray(wave[1])
-
-    def run_thread(**kwargs):
-        global spec_left
-        spec_left = librosa.stft(**kwargs)
-
-    thread = threading.Thread(
-        target=run_thread,
-        kwargs={"y": wave_left, "n_fft": n_fft, "hop_length": hop_length},
-    )
-    thread.start()
-    spec_right = librosa.stft(wave_right, n_fft=n_fft, hop_length=hop_length)
-    thread.join()
-
-    spec = np.asfortranarray([spec_left, spec_right])
-
-    return spec
 
 
 def combine_spectrograms(specs, mp):
@@ -292,144 +232,6 @@ def cache_or_load(mix_path, inst_path, mp):
     return X_spec_m, y_spec_m
 
 
-def spectrogram_to_wave(spec, hop_length, mid_side, mid_side_b2, reverse):
-    spec_left = np.asfortranarray(spec[0])
-    spec_right = np.asfortranarray(spec[1])
-
-    wave_left = librosa.istft(spec_left, hop_length=hop_length)
-    wave_right = librosa.istft(spec_right, hop_length=hop_length)
-
-    if reverse:
-        return np.asfortranarray([np.flip(wave_left), np.flip(wave_right)])
-    elif mid_side:
-        return np.asfortranarray(
-            [np.add(wave_left, wave_right / 2), np.subtract(wave_left, wave_right / 2)]
-        )
-    elif mid_side_b2:
-        return np.asfortranarray(
-            [
-                np.add(wave_right / 1.25, 0.4 * wave_left),
-                np.subtract(wave_left / 1.25, 0.4 * wave_right),
-            ]
-        )
-    else:
-        return np.asfortranarray([wave_left, wave_right])
-
-
-def spectrogram_to_wave_mt(spec, hop_length, mid_side, reverse, mid_side_b2):
-    import threading
-
-    spec_left = np.asfortranarray(spec[0])
-    spec_right = np.asfortranarray(spec[1])
-
-    def run_thread(**kwargs):
-        global wave_left
-        wave_left = librosa.istft(**kwargs)
-
-    thread = threading.Thread(
-        target=run_thread, kwargs={"stft_matrix": spec_left, "hop_length": hop_length}
-    )
-    thread.start()
-    wave_right = librosa.istft(spec_right, hop_length=hop_length)
-    thread.join()
-
-    if reverse:
-        return np.asfortranarray([np.flip(wave_left), np.flip(wave_right)])
-    elif mid_side:
-        return np.asfortranarray(
-            [np.add(wave_left, wave_right / 2), np.subtract(wave_left, wave_right / 2)]
-        )
-    elif mid_side_b2:
-        return np.asfortranarray(
-            [
-                np.add(wave_right / 1.25, 0.4 * wave_left),
-                np.subtract(wave_left / 1.25, 0.4 * wave_right),
-            ]
-        )
-    else:
-        return np.asfortranarray([wave_left, wave_right])
-
-
-def cmb_spectrogram_to_wave(spec_m, mp, extra_bins_h=None, extra_bins=None):
-    wave_band = {}
-    bands_n = len(mp.param["band"])
-    offset = 0
-
-    for d in range(1, bands_n + 1):
-        bp = mp.param["band"][d]
-        spec_s = np.ndarray(
-            shape=(2, bp["n_fft"] // 2 + 1, spec_m.shape[2]), dtype=complex
-        )
-        h = bp["crop_stop"] - bp["crop_start"]
-        spec_s[:, bp["crop_start"] : bp["crop_stop"], :] = spec_m[
-            :, offset : offset + h, :
-        ]
-
-        offset += h
-        if d == bands_n:  # higher
-            if extra_bins_h:  # if --high_end_process bypass
-                max_bin = bp["n_fft"] // 2
-                spec_s[:, max_bin - extra_bins_h : max_bin, :] = extra_bins[
-                    :, :extra_bins_h, :
-                ]
-            if bp["hpf_start"] > 0:
-                spec_s = fft_hp_filter(spec_s, bp["hpf_start"], bp["hpf_stop"] - 1)
-            if bands_n == 1:
-                wave = spectrogram_to_wave(
-                    spec_s,
-                    bp["hl"],
-                    mp.param["mid_side"],
-                    mp.param["mid_side_b2"],
-                    mp.param["reverse"],
-                )
-            else:
-                wave = np.add(
-                    wave,
-                    spectrogram_to_wave(
-                        spec_s,
-                        bp["hl"],
-                        mp.param["mid_side"],
-                        mp.param["mid_side_b2"],
-                        mp.param["reverse"],
-                    ),
-                )
-        else:
-            sr = mp.param["band"][d + 1]["sr"]
-            if d == 1:  # lower
-                spec_s = fft_lp_filter(spec_s, bp["lpf_start"], bp["lpf_stop"])
-                wave = librosa.resample(
-                    spectrogram_to_wave(
-                        spec_s,
-                        bp["hl"],
-                        mp.param["mid_side"],
-                        mp.param["mid_side_b2"],
-                        mp.param["reverse"],
-                    ),
-                    orig_sr=bp["sr"],
-                    target_sr=sr,
-                    res_type="sinc_fastest",
-                )
-            else:  # mid
-                spec_s = fft_hp_filter(spec_s, bp["hpf_start"], bp["hpf_stop"] - 1)
-                spec_s = fft_lp_filter(spec_s, bp["lpf_start"], bp["lpf_stop"])
-                wave2 = np.add(
-                    wave,
-                    spectrogram_to_wave(
-                        spec_s,
-                        bp["hl"],
-                        mp.param["mid_side"],
-                        mp.param["mid_side_b2"],
-                        mp.param["reverse"],
-                    ),
-                )
-                # wave = librosa.core.resample(wave2, orig_sr=bp['sr'], target_sr=sr, res_type="sinc_fastest")
-                wave = librosa.core.resample(
-                    wave2, orig_sr=bp["sr"], target_sr=sr, res_type="scipy"
-                )
-
-    return wave.T
-
-
 def fft_lp_filter(spec, bin_start, bin_stop):
     g = 1.0
     for b in range(bin_start, bin_stop):
@@ -507,170 +309,216 @@ def ensembling(a, specs):
     return spec
 
 
-def stft(wave, nfft, hl):
-    wave_left = np.asfortranarray(wave[0])
-    wave_right = np.asfortranarray(wave[1])
-    spec_left = librosa.stft(wave_left, n_fft=nfft, hop_length=hl)
-    spec_right = librosa.stft(wave_right, n_fft=nfft, hop_length=hl)
+def wave_to_spectrogram(
+    wave, hop_length, n_fft, mid_side=False, mid_side_b2=False, reverse=False
+):
+    if reverse:
+        wave_left = np.flip(np.asfortranarray(wave[0]))
+        wave_right = np.flip(np.asfortranarray(wave[1]))
+    elif mid_side:
+        wave_left = np.asfortranarray(np.add(wave[0], wave[1]) / 2)
+        wave_right = np.asfortranarray(np.subtract(wave[0], wave[1]))
+    elif mid_side_b2:
+        wave_left = np.asfortranarray(np.add(wave[1], wave[0] * 0.5))
+        wave_right = np.asfortranarray(np.subtract(wave[0], wave[1] * 0.5))
+    else:
+        wave_left = np.asfortranarray(wave[0])
+        wave_right = np.asfortranarray(wave[1])
+
+    spec_left = librosa.stft(wave_left, n_fft=n_fft, hop_length=hop_length)
+    spec_right = librosa.stft(wave_right, n_fft=n_fft, hop_length=hop_length)
+
     spec = np.asfortranarray([spec_left, spec_right])
 
     return spec
 
 
-def istft(spec, hl):
+def wave_to_spectrogram_mt(
+    wave, hop_length, n_fft, mid_side=False, mid_side_b2=False, reverse=False
+):
+    import threading
+
+    if reverse:
+        wave_left = np.flip(np.asfortranarray(wave[0]))
+        wave_right = np.flip(np.asfortranarray(wave[1]))
+    elif mid_side:
+        wave_left = np.asfortranarray(np.add(wave[0], wave[1]) / 2)
+        wave_right = np.asfortranarray(np.subtract(wave[0], wave[1]))
+    elif mid_side_b2:
+        wave_left = np.asfortranarray(np.add(wave[1], wave[0] * 0.5))
+        wave_right = np.asfortranarray(np.subtract(wave[0], wave[1] * 0.5))
+    else:
+        wave_left = np.asfortranarray(wave[0])
+        wave_right = np.asfortranarray(wave[1])
+
+    def run_thread(**kwargs):
+        global spec_left
+        spec_left = librosa.stft(**kwargs)
+
+    thread = threading.Thread(
+        target=run_thread,
+        kwargs={"y": wave_left, "n_fft": n_fft, "hop_length": hop_length},
+    )
+    thread.start()
+    spec_right = librosa.stft(wave_right, n_fft=n_fft, hop_length=hop_length)
+    thread.join()
+
+    spec = np.asfortranarray([spec_left, spec_right])
+
+    return spec
+
+
+def spectrogram_to_wave(spec, hop_length, mid_side, mid_side_b2, reverse):
     spec_left = np.asfortranarray(spec[0])
     spec_right = np.asfortranarray(spec[1])
 
-    wave_left = librosa.istft(spec_left, hop_length=hl)
-    wave_right = librosa.istft(spec_right, hop_length=hl)
-    wave = np.asfortranarray([wave_left, wave_right])
+    wave_left = librosa.istft(spec_left, hop_length=hop_length)
+    wave_right = librosa.istft(spec_right, hop_length=hop_length)
 
-
-if __name__ == "__main__":
-    import argparse
-    import sys
-    import time
-
-    import cv2
-    from model_param_init import ModelParameters
-
-    p = argparse.ArgumentParser()
-    p.add_argument(
-        "--algorithm",
-        "-a",
-        type=str,
-        choices=["invert", "invert_p", "min_mag", "max_mag", "deep", "align"],
-        default="min_mag",
-    )
-    p.add_argument(
-        "--model_params",
-        "-m",
-        type=str,
-        default=os.path.join("modelparams", "1band_sr44100_hl512.json"),
-    )
-    p.add_argument("--output_name", "-o", type=str, default="output")
-    p.add_argument("--vocals_only", "-v", action="store_true")
-    p.add_argument("input", nargs="+")
-    args = p.parse_args()
-
-    start_time = time.time()
-
-    if args.algorithm.startswith("invert") and len(args.input) != 2:
-        raise ValueError("There should be two input files.")
-
-    if not args.algorithm.startswith("invert") and len(args.input) < 2:
-        raise ValueError("There must be at least two input files.")
-
-    wave, specs = {}, {}
-    mp = ModelParameters(args.model_params)
-
-    for i in range(len(args.input)):
-        spec = {}
-
-        for d in range(len(mp.param["band"]), 0, -1):
-            bp = mp.param["band"][d]
-
-            if d == len(mp.param["band"]):  # high-end band
-                wave[d], _ = librosa.load(
-                    args.input[i],
-                    sr=bp["sr"],
-                    mono=False,
-                    dtype=np.float32,
-                    res_type=bp["res_type"],
-                )
-
-                if len(wave[d].shape) == 1:  # mono to stereo
-                    wave[d] = np.array([wave[d], wave[d]])
-            else:  # lower bands
-                wave[d] = librosa.resample(
-                    wave[d + 1],
-                    orig_sr=mp.param["band"][d + 1]["sr"],
-                    target_sr=bp["sr"],
-                    res_type=bp["res_type"],
-                )
-
-            spec[d] = wave_to_spectrogram(
-                wave[d],
-                bp["hl"],
-                bp["n_fft"],
-                mp.param["mid_side"],
-                mp.param["mid_side_b2"],
-                mp.param["reverse"],
-            )
-
-        specs[i] = combine_spectrograms(spec, mp)
-
-    del wave
-
-    if args.algorithm == "deep":
-        d_spec = np.where(np.abs(specs[0]) <= np.abs(spec[1]), specs[0], spec[1])
-        v_spec = d_spec - specs[1]
-        sf.write(
-            os.path.join("{}.wav".format(args.output_name)),
-            cmb_spectrogram_to_wave(v_spec, mp),
-            mp.param["sr"],
+    if reverse:
+        return np.asfortranarray([np.flip(wave_left), np.flip(wave_right)])
+    elif mid_side:
+        return np.asfortranarray(
+            [np.add(wave_left, wave_right / 2), np.subtract(wave_left, wave_right / 2)]
         )
-
-    if args.algorithm.startswith("invert"):
-        ln = min([specs[0].shape[2], specs[1].shape[2]])
-        specs[0] = specs[0][:, :, :ln]
-        specs[1] = specs[1][:, :, :ln]
-
-        if "invert_p" == args.algorithm:
-            X_mag = np.abs(specs[0])
-            y_mag = np.abs(specs[1])
-            max_mag = np.where(X_mag >= y_mag, X_mag, y_mag)
-            v_spec = specs[1] - max_mag * np.exp(1.0j * np.angle(specs[0]))
-        else:
-            specs[1] = reduce_vocal_aggressively(specs[0], specs[1], 0.2)
-            v_spec = specs[0] - specs[1]
-
-            if not args.vocals_only:
-                X_mag = np.abs(specs[0])
-                y_mag = np.abs(specs[1])
-                v_mag = np.abs(v_spec)
-
-                X_image = spectrogram_to_image(X_mag)
-                y_image = spectrogram_to_image(y_mag)
-                v_image = spectrogram_to_image(v_mag)
-
-                cv2.imwrite("{}_X.png".format(args.output_name), X_image)
-                cv2.imwrite("{}_y.png".format(args.output_name), y_image)
-                cv2.imwrite("{}_v.png".format(args.output_name), v_image)
-
-                sf.write(
-                    "{}_X.wav".format(args.output_name),
-                    cmb_spectrogram_to_wave(specs[0], mp),
-                    mp.param["sr"],
-                )
-                sf.write(
-                    "{}_y.wav".format(args.output_name),
-                    cmb_spectrogram_to_wave(specs[1], mp),
-                    mp.param["sr"],
-                )
-
-        sf.write(
-            "{}_v.wav".format(args.output_name),
-            cmb_spectrogram_to_wave(v_spec, mp),
-            mp.param["sr"],
+    elif mid_side_b2:
+        return np.asfortranarray(
+            [
+                np.add(wave_right / 1.25, 0.4 * wave_left),
+                np.subtract(wave_left / 1.25, 0.4 * wave_right),
+            ]
         )
     else:
-        if not args.algorithm == "deep":
-            sf.write(
-                os.path.join("ensembled", "{}.wav".format(args.output_name)),
-                cmb_spectrogram_to_wave(ensembling(args.algorithm, specs), mp),
-                mp.param["sr"],
-            )
+        return np.asfortranarray([wave_left, wave_right])
 
-    if args.algorithm == "align":
-        trackalignment = [
-            {
-                "file1": '"{}"'.format(args.input[0]),
-                "file2": '"{}"'.format(args.input[1]),
-            }
+
+def spectrogram_to_wave_mt(spec, hop_length, mid_side, reverse, mid_side_b2):
+    import threading
+
+    spec_left = np.asfortranarray(spec[0])
+    spec_right = np.asfortranarray(spec[1])
+
+    def run_thread(**kwargs):
+        global wave_left
+        wave_left = librosa.istft(**kwargs)
+
+    thread = threading.Thread(
+        target=run_thread, kwargs={"stft_matrix": spec_left, "hop_length": hop_length}
+    )
+    thread.start()
+    wave_right = librosa.istft(spec_right, hop_length=hop_length)
+    thread.join()
+
+    if reverse:
+        return np.asfortranarray([np.flip(wave_left), np.flip(wave_right)])
+    elif mid_side:
+        return np.asfortranarray(
+            [np.add(wave_left, wave_right / 2), np.subtract(wave_left, wave_right / 2)]
+        )
+    elif mid_side_b2:
+        return np.asfortranarray(
+            [
+                np.add(wave_right / 1.25, 0.4 * wave_left),
+                np.subtract(wave_left / 1.25, 0.4 * wave_right),
+            ]
+        )
+    else:
+        return np.asfortranarray([wave_left, wave_right])
+
+
+def cmb_spectrogram_to_wave(spec_m, mp, extra_bins_h=None, extra_bins=None):
+    wave_band = {}
+    bands_n = len(mp.param["band"])
+    offset = 0
+
+    def resample_wave(wave, orig_sr, target_sr):
+        """
+        Resample a numpy array using torch.
+        Args:
+            wave (numpy array): Input waveform
+            orig_sr (int): Original sampling rate
+            target_sr (int): Target sampling rate
+        Returns:
+            numpy array: Resampled waveform
+        """
+        wave_torch = torch.tensor(wave, dtype=torch.float32)
+
+        # Interpolate expects 3D tensor in linear mode: (batch, channels, length)
+        wave_torch = wave_torch.unsqueeze(0)  # Add batch dimension
+        resample_size = int(wave_torch.shape[-1] * target_sr / orig_sr)
+
+        resampled_wave = torch.nn.functional.interpolate(
+            wave_torch, size=resample_size, mode="linear", align_corners=False
+        )
+
+        return resampled_wave.squeeze().numpy()
+
+    for d in range(1, bands_n + 1):
+        bp = mp.param["band"][d]
+        spec_s = np.ndarray(
+            shape=(2, bp["n_fft"] // 2 + 1, spec_m.shape[2]), dtype=complex
+        )
+        h = bp["crop_stop"] - bp["crop_start"]
+        spec_s[:, bp["crop_start"] : bp["crop_stop"], :] = spec_m[
+            :, offset : offset + h, :
         ]
 
-        for i, e in tqdm(enumerate(trackalignment), desc="Performing Alignment..."):
-            os.system(f"python lib/align_tracks.py {e['file1']} {e['file2']}")
+        offset += h
+        if d == bands_n:  # higher
+            if extra_bins_h:  # if --high_end_process bypass
+                max_bin = bp["n_fft"] // 2
+                spec_s[:, max_bin - extra_bins_h : max_bin, :] = extra_bins[
+                    :, :extra_bins_h, :
+                ]
+            if bp["hpf_start"] > 0:
+                spec_s = fft_hp_filter(spec_s, bp["hpf_start"], bp["hpf_stop"] - 1)
+            if bands_n == 1:
+                wave = spectrogram_to_wave(
+                    spec_s,
+                    bp["hl"],
+                    mp.param["mid_side"],
+                    mp.param["mid_side_b2"],
+                    mp.param["reverse"],
+                )
+            else:
+                wave = np.add(
+                    wave,
+                    spectrogram_to_wave(
+                        spec_s,
+                        bp["hl"],
+                        mp.param["mid_side"],
+                        mp.param["mid_side_b2"],
+                        mp.param["reverse"],
+                    ),
+                )
+        else:
+            sr = mp.param["band"][d + 1]["sr"]
+            if d == 1:  # lower
+                spec_s = fft_lp_filter(spec_s, bp["lpf_start"], bp["lpf_stop"])
+                wave = resample_wave(
+                    spectrogram_to_wave(
+                        spec_s,
+                        bp["hl"],
+                        mp.param["mid_side"],
+                        mp.param["mid_side_b2"],
+                        mp.param["reverse"],
+                    ),
+                    orig_sr=bp["sr"],
+                    target_sr=sr,
+                )
+            else:  # mid
+                spec_s = fft_hp_filter(spec_s, bp["hpf_start"], bp["hpf_stop"] - 1)
+                spec_s = fft_lp_filter(spec_s, bp["lpf_start"], bp["lpf_stop"])
+                wave2 = np.add(
+                    wave,
+                    spectrogram_to_wave(
+                        spec_s,
+                        bp["hl"],
+                        mp.param["mid_side"],
+                        mp.param["mid_side_b2"],
+                        mp.param["reverse"],
+                    ),
+                )
+                wave = resample_wave(wave2, orig_sr=bp["sr"], target_sr=sr)
 
-    # print('Total time: {0:.{1}f}s'.format(time.time() - start_time, 1))
+    return wave.T

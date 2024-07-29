@@ -1,12 +1,12 @@
 import os
-from loguru import logger
-import librosa
+
 import numpy as np
 import torch
 import torchaudio
 from tqdm import tqdm
+from loguru import logger
 
-cpu = torch.device("cpu" if not torch.cuda.is_available() else "cuda")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class ConvTDFNetTrim:
@@ -71,9 +71,17 @@ class ConvTDFNetTrim:
         )
         return x.reshape([-1, c, self.chunk_size])
 
-    def save_audio(self, path, audio, sample_rate):
-        audio = audio.cpu() if audio.device != cpu else audio
-        torchaudio.save(path, audio, sample_rate)
+
+def get_models(device, dim_f, dim_t, n_fft):
+    return ConvTDFNetTrim(
+        device=device,
+        model_name="Conv-TDF",
+        target_name="vocals",
+        L=11,
+        dim_f=dim_f,
+        dim_t=dim_t,
+        n_fft=n_fft,
+    )
 
 
 class Predictor:
@@ -82,8 +90,8 @@ class Predictor:
 
         logger.info(ort.get_available_providers())
         self.args = args
-        self.model_ = self.get_models(
-            device=cpu, dim_f=args.dim_f, dim_t=args.dim_t, n_fft=args.n_fft
+        self.model_ = get_models(
+            device=device, dim_f=args.dim_f, dim_t=args.dim_t, n_fft=args.n_fft
         )
         self.model = ort.InferenceSession(
             os.path.join(args.onnx, self.model_.target_name + ".onnx"),
@@ -94,17 +102,6 @@ class Predictor:
             ],
         )
         logger.info("ONNX load done")
-
-    def get_models(self, device, dim_f, dim_t, n_fft):
-        return ConvTDFNetTrim(
-            device=device,
-            model_name="Conv-TDF",
-            target_name="vocals",
-            L=11,
-            dim_f=dim_f,
-            dim_t=dim_t,
-            n_fft=n_fft,
-        )
 
     def demix(self, mix):
         samples = mix.shape[-1]
@@ -144,42 +141,40 @@ class Predictor:
         chunked_sources = []
         progress_bar = tqdm(total=len(mixes))
         progress_bar.set_description("Processing")
-        for mix in mixes:
-            cmix = mixes[mix]
-            sources = []
+
+        model = self.model_
+        trim = model.n_fft // 2
+        gen_size = model.chunk_size - 2 * trim
+        _ort = self.model
+
+        for mix_key in mixes:
+            cmix = mixes[mix_key]
             n_sample = cmix.shape[1]
-            model = self.model_
-            trim = model.n_fft // 2
-            gen_size = model.chunk_size - 2 * trim
             pad = gen_size - n_sample % gen_size
-            mix_p = np.concatenate(
-                (np.zeros((2, trim)), cmix, np.zeros((2, pad)), np.zeros((2, trim))), 1
+            mix_padded = np.pad(cmix, ((0, 0), (trim, trim + pad)), mode="constant")
+
+            # Efficiently convert mix_waves to a numpy array
+            mix_waves = np.array(
+                [
+                    mix_padded[:, i : i + model.chunk_size]
+                    for i in range(0, n_sample + pad, gen_size)
+                ]
             )
-            mix_waves = []
-            i = 0
-            while i < n_sample + pad:
-                waves = np.array(mix_p[:, i : i + model.chunk_size])
-                mix_waves.append(waves)
-                i += gen_size
-            mix_waves = torch.tensor(mix_waves, dtype=torch.float32).to(cpu)
+
+            mix_waves_tensor = torch.tensor(mix_waves, dtype=torch.float32).to(device)
+
             with torch.no_grad():
-                _ort = self.model
-                spek = model.stft(mix_waves)
+                spek = model.stft(mix_waves_tensor)
                 if self.args.denoise:
                     spec_pred = (
                         -_ort.run(None, {"input": -spek.cpu().numpy()})[0] * 0.5
                         + _ort.run(None, {"input": spek.cpu().numpy()})[0] * 0.5
                     )
-                    tar_waves = model.istft(
-                        torch.tensor(spec_pred, dtype=torch.complex64).to(cpu)
-                    )
+                    tar_waves = model.istft(torch.tensor(spec_pred).to(device))
                 else:
-                    tar_waves = model.istft(
-                        torch.tensor(
-                            _ort.run(None, {"input": spek.cpu().numpy()})[0],
-                            dtype=torch.complex64,
-                        ).to(cpu)
-                    )
+                    spek_output = _ort.run(None, {"input": spek.cpu().numpy()})[0]
+                    tar_waves = model.istft(torch.tensor(spek_output).to(device))
+
                 tar_signal = (
                     tar_waves[:, :, trim:-trim]
                     .transpose(0, 1)
@@ -188,59 +183,77 @@ class Predictor:
                     .numpy()[:, :-pad]
                 )
 
-                start = 0 if mix == 0 else margin_size
-                end = None if mix == list(mixes.keys())[::-1][0] else -margin_size
+                start = 0 if mix_key == 0 else margin_size
+                end = None if mix_key == list(mixes.keys())[::-1][0] else -margin_size
                 if margin_size == 0:
                     end = None
-                sources.append(tar_signal[:, start:end])
+                chunked_sources.append(tar_signal[:, start:end])
 
                 progress_bar.update(1)
 
-            chunked_sources.append(sources)
-        _sources = np.concatenate(chunked_sources, axis=-1)
-        # del self.model
         progress_bar.close()
+        _sources = np.concatenate(chunked_sources, axis=-1)
         return _sources
 
     def prediction(self, m, vocal_root, others_root, format):
         os.makedirs(vocal_root, exist_ok=True)
         os.makedirs(others_root, exist_ok=True)
         basename = os.path.basename(m)
-        mix, rate = librosa.load(m, mono=False, sr=44100)
+
+        # Load audio with torchaudio for GPU acceleration
+        mix, rate = torchaudio.load(m, normalize=True)
+        mix = mix.to(device)
+
         if mix.ndim == 1:
-            mix = np.asfortranarray([mix, mix])
+            mix = mix.unsqueeze(0).repeat(2, 1)
+
         mix = mix.T
-        sources = self.demix(mix.T)
-        opt = sources[0].T
+
+        # Perform demixing on GPU
+        sources = self.demix(mix.T.cpu().numpy())
+        opt = torch.tensor(sources[0].T).to(device)
+
+        def save_audio(data, path, rate):
+            data = data.cpu().numpy()
+            torchaudio.save(path, torch.tensor(data, device="cpu"), rate)
+
         if format in ["wav", "flac"]:
-            vocal_AUDIO = "%s/%s_main_vocal.%s" % (vocal_root, basename, format)
-            torchaudio.save(vocal_AUDIO, torch.tensor(mix - opt).unsqueeze(0), rate)
-            bgm_AUDIO = "%s/%s_others.%s" % (others_root, basename, format)
-            torchaudio.save(bgm_AUDIO, torch.tensor(opt).unsqueeze(0), rate)
+            vocal_audio_path = os.path.join(
+                vocal_root, f"{basename}_main_vocal.{format}"
+            )
+            bgm_audio_path = os.path.join(others_root, f"{basename}_others.{format}")
+
+            save_audio(mix - opt, vocal_audio_path, rate)
+            save_audio(opt, bgm_audio_path, rate)
         else:
-            vocal_AUDIO = "%s/%s_main_vocal.wav" % (vocal_root, basename)
-            bgm_AUDIO = "%s/%s_others.wav" % (others_root, basename)
-            torchaudio.save(vocal_AUDIO, torch.tensor(mix - opt).unsqueeze(0), rate)
-            torchaudio.save(bgm_AUDIO, torch.tensor(opt).unsqueeze(0), rate)
-            opt_path_vocal = vocal_AUDIO[:-4] + ".%s" % format
-            opt_path_other = bgm_AUDIO[:-4] + ".%s" % format
-            if os.path.exists(vocal_AUDIO):
+            vocal_audio_path = os.path.join(vocal_root, f"{basename}_main_vocal.wav")
+            bgm_audio_path = os.path.join(others_root, f"{basename}_others.wav")
+
+            save_audio(mix - opt, vocal_audio_path, rate)
+            save_audio(opt, bgm_audio_path, rate)
+
+            opt_path_vocal = vocal_audio_path[:-4] + f".{format}"
+            opt_path_other = bgm_audio_path[:-4] + f".{format}"
+
+            if os.path.exists(vocal_audio_path):
                 os.system(
-                    "ffmpeg -i %s -vn %s -q:a 2 -y" % (vocal_AUDIO, opt_path_vocal)
+                    f"ffmpeg -i {vocal_audio_path} -vn {opt_path_vocal} -q:a 2 -y"
                 )
                 if os.path.exists(opt_path_vocal):
                     try:
-                        os.remove(vocal_AUDIO)
+                        os.remove(vocal_audio_path)
                     except Exception as e:
-                        logger.error(e)
-            if os.path.exists(bgm_AUDIO):
-                os.system("ffmpeg -i %s -vn %s -q:a 2 -y" % (bgm_AUDIO, opt_path_other))
+                        logger.error(f"{e}")
+
+            if os.path.exists(bgm_audio_path):
+                os.system(f"ffmpeg -i {bgm_audio_path} -vn {opt_path_other} -q:a 2 -y")
                 if os.path.exists(opt_path_other):
                     try:
-                        os.remove(bgm_AUDIO)
+                        os.remove(bgm_audio_path)
                     except Exception as e:
-                        logger.error(e)
-        return vocal_AUDIO, bgm_AUDIO
+                        logger.error(f"{e}")
+
+        return vocal_audio_path, bgm_audio_path
 
 
 class MDXNetDereverb:
@@ -257,7 +270,7 @@ class MDXNetDereverb:
         self.n_fft = 6144
         self.denoise = True
         self.pred = Predictor(self)
-        self.device = cpu
+        self.device = device
 
     def _path_audio_(self, input, others_root, vocal_root, format, is_hp3=False):
         return self.pred.prediction(input, vocal_root, others_root, format)
