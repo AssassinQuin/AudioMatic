@@ -2,6 +2,7 @@ import shutil
 import torchaudio
 import os
 from loguru import logger
+from config import max_segment_duration
 
 from strategy import AudioProcessingStrategy
 
@@ -44,7 +45,10 @@ class CutAudioStrategy(AudioProcessingStrategy):
         return silences  # 返回包含暂停的开始和结束位置的元组列表
 
     def split_wav_on_pauses(
-        self, filename, output_path, max_segment_duration=10 * 60 * 1000
+        self,
+        filename,
+        output_path,
+        max_segment_duration=max_segment_duration * 60 * 1000,
     ):
         """
         根据暂停和最大段长度将WAV文件拆分为多个段。

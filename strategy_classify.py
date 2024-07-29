@@ -8,6 +8,7 @@
 import os
 import shutil
 from loguru import logger
+from config import batch_size_s
 
 from strategy import AudioProcessingStrategy
 
@@ -52,7 +53,7 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
         wav_file_path = self.merge_wav_files(input_audio_path)
         res = self.model.generate(
             input=wav_file_path,
-            batch_size_s=60,
+            batch_size_s=batch_size_s,
             cache={},
             use_itn=True,
             merge_vad=True,
