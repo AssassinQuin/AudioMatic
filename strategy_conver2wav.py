@@ -52,6 +52,7 @@ class ConvertToWavStrategy:
             ".ogg",
             ".wav",
             ".mp4",
+            ".m4s",
         }
 
         for file_path in all_files:
