@@ -1,7 +1,7 @@
 """
 提取人声策略
 1. 使用 HP2_all_vocals 模型
-2. 使用 onnx_dereverb_By_FoxJoy 模型(太慢，放弃)
+2. 使用 Onnx_dereverb_By_FoxJoy 模型(太慢，放弃)
 3. 使用 VR-DeEchoAggressive 模型
 
 使用 uvr5: https://github.com/AIFSH/ComfyUI-UVR5
@@ -44,7 +44,7 @@ class ExtractVocalStrategy(AudioProcessingStrategy):
 
     def process(self, input_audio_path):
         """
-        处理音频文件，依次使用 HP2_all_vocals、onnx_dereverb_By_FoxJoy 和 VR-DeEchoAggressive 模型提取人声。
+        处理音频文件，依次使用 HP2_all_vocals、Onnx_dereverb_By_FoxJoy 和 VR-DeEchoAggressive 模型提取人声。
 
         参数:
         input_audio_path: 输入音频文件路径
@@ -55,7 +55,7 @@ class ExtractVocalStrategy(AudioProcessingStrategy):
         logger.info(f"开始提取人声，输入目录:{input_audio_path}")
         self.model = uvr(self.model_weights_root, self.tmp_path, self.device)
         output_path = self.handle_HP2_all_vocals(input_audio_path)
-        # output_path = self.handle_onnx_dereverb_By_FoxJoy(output_path)
+        # output_path = self.handle_Onnx_dereverb_By_FoxJoy(output_path)
         output_path = self.handle_VR_DeEchoAggressive(output_path)
         logger.info(f"提取人声完成，输出目录:{output_path}")
         return output_path
@@ -90,9 +90,9 @@ class ExtractVocalStrategy(AudioProcessingStrategy):
             shutil.rmtree(instrumental_output_path)
         return vocal_output_path
 
-    def handle_onnx_dereverb_By_FoxJoy(self, input_audio_path):
+    def handle_Onnx_dereverb_By_FoxJoy(self, input_audio_path):
         """
-        使用 onnx_dereverb_By_FoxJoy 模型提取人声。
+        使用 Onnx_dereverb_By_FoxJoy 模型提取人声。
 
         参数:
         input_audio_path: 输入音频文件路径
@@ -101,28 +101,28 @@ class ExtractVocalStrategy(AudioProcessingStrategy):
         提取人声后的输出目录路径
         """
         logger.info(
-            f"【onnx_dereverb_By_FoxJoy】开始提取人声，输入目录:{input_audio_path}"
+            f"【Onnx_dereverb_By_FoxJoy】开始提取人声，输入目录:{input_audio_path}"
         )
         vocal_output_path = os.path.join(
-            self.root_path, "process", "onnx_dereverb_By_FoxJoy_vocal", self.timestamp
+            self.root_path, "process", "Onnx_dereverb_By_FoxJoy_vocal", self.timestamp
         )
         instrumental_output_path = os.path.join(
             self.root_path,
             "process",
-            "onnx_dereverb_By_FoxJoy_instrumental",
+            "Onnx_dereverb_By_FoxJoy_instrumental",
             self.timestamp,
         )
         self.model.process(
-            "onnx_dereverb_By_FoxJoy",
+            "Onnx_dereverb_By_FoxJoy",
             input_audio_path,
             vocal_output_path,
             instrumental_output_path,
         )
         logger.info(
-            f"【onnx_dereverb_By_FoxJoy】提取人声完成，输出目录:{vocal_output_path}"
+            f"【Onnx_dereverb_By_FoxJoy】提取人声完成，输出目录:{vocal_output_path}"
         )
         if self.is_delete_last_input:
-            logger.info(f"【onnx_dereverb_By_FoxJoy】删除输入目录:{input_audio_path}")
+            logger.info(f"【Onnx_dereverb_By_FoxJoy】删除输入目录:{input_audio_path}")
             shutil.rmtree(input_audio_path)
             shutil.rmtree(instrumental_output_path)
 

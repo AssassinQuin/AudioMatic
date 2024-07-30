@@ -45,7 +45,7 @@ class uvr:
 
         try:
             is_hp3 = "HP3" in model_name
-            if model_name == "onnx_dereverb_By_FoxJoy":
+            if model_name == "Onnx_dereverb_By_FoxJoy":
                 processor = MDXNetDereverb(15)
             else:
                 processor_class = (
@@ -127,7 +127,7 @@ class uvr:
             logger.error(f"处理过程中发生错误: {e}", exc_info=True)
         finally:
             try:
-                if model_name == "onnx_dereverb_By_FoxJoy":
+                if model_name == "Onnx_dereverb_By_FoxJoy":
                     del processor.pred.model
                     del processor.pred.model_
                 else:

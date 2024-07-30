@@ -1,10 +1,3 @@
-"""
-提取分类说话人策略
-使用 FunASR:https://github.com/modelscope/FunASR/blob/main/README_zh.md
-
-参数测试环境：4060 8G
-"""
-
 import os
 import shutil
 from loguru import logger
@@ -50,87 +43,109 @@ class ClassifyAudioStrategy(AudioProcessingStrategy):
             spk_model="iic/speech_campplus_sv_zh-cn_16k-common",
             device=self.device,
         )
-        wav_file_path = self.merge_wav_files(input_audio_path)
-        res = self.model.generate(
-            input=wav_file_path,
-            batch_size_s=batch_size_s,
-            cache={},
-            use_itn=True,
-            merge_vad=True,
-            merge_length_s=60,
-        )
 
-        audio = AudioSegment.from_wav(wav_file_path)
+        # 从 input_audio_path 读取音频文件
+        wav_files = []
+        if os.path.isdir(input_audio_path):
+            for file_name in os.listdir(input_audio_path):
+                if file_name.endswith(".wav"):
+                    wav_files.append(os.path.join(input_audio_path, file_name))
 
-        # 创建输出目录
-        output_dir = os.path.join(self.root_path, "process", "classify", self.timestamp)
-        os.makedirs(output_dir, exist_ok=True)
+        if not wav_files:
+            logger.error("在指定目录中未找到 WAV 文件")
+            return
 
-        logger.info("开始处理音频裁剪和文本保存。")
-        current_speaker = None
-        current_segment = None
-        current_text = ""
-        current_start_time = 0
+        for wav_file_path in wav_files:
+            res = self.model.generate(
+                input=wav_file_path,
+                batch_size_s=batch_size_s,
+                cache={},
+                use_itn=True,
+                merge_vad=True,
+                merge_length_s=60,
+            )
 
-        # 处理每个识别结果
-        for item in res[0]["sentence_info"]:
-            text = item["text"]
-            timestamps = item["timestamp"]
-            speaker = item["spk"]
+            audio = AudioSegment.from_wav(wav_file_path)
 
-            # 使用 timestamp 第一个元素的第一个时间戳作为片段开始时间
-            start_time = timestamps[0][0]
-            # 使用 timestamp 最后一个元素的最后一个时间戳作为片段结束时间
-            end_time = timestamps[-1][-1]
-            # 生成音频片段
-            segment = audio[start_time:end_time]
+            wav_name = os.path.splitext(os.path.basename(wav_file_path))[0]
+            # 创建输出目录
+            output_dir = os.path.join(
+                self.root_path,
+                "process",
+                "classify",
+                self.timestamp,
+                wav_name,
+            )
+            os.makedirs(output_dir, exist_ok=True)
 
-            # 检查时间戳值
-            logger.info(f"""
+            logger.info("开始处理音频裁剪和文本保存。")
+            current_speaker = None
+            current_segment = None
+            current_text = ""
+            current_start_time = 0
+
+            # 处理每个识别结果
+            for item in res[0]["sentence_info"]:
+                text = item["text"]
+                timestamps = item["timestamp"]
+                speaker = item["spk"]
+
+                # 使用 timestamp 第一个元素的第一个时间戳作为片段开始时间
+                start_time = timestamps[0][0]
+                # 使用 timestamp 最后一个元素的最后一个时间戳作为片段结束时间
+                end_time = timestamps[-1][-1]
+                # 生成音频片段
+                segment = audio[start_time:end_time]
+
+                # 检查时间戳值
+                logger.info(f"""
 处理片段：start={start_time} ms, end={end_time} ms
 音频片段长度：{len(segment)} ms - {len(audio)} ms
 识别文本：{text}
 说话人：{speaker}
 """)
 
-            # 若 speaker 是同个人，时长小于 15s，则合并多个音频片段到一个音频片段
-            if current_speaker == speaker and (end_time - current_start_time) < 22000:
-                if current_segment is None:
-                    current_segment = segment
+                # 若 speaker 是同个人，时长小于 15s，则合并多个音频片段到一个音频片段
+                if (
+                    current_speaker == speaker
+                    and (end_time - current_start_time) < 22000
+                ):
+                    if current_segment is None:
+                        current_segment = segment
+                    else:
+                        current_segment += segment
+                    current_text += text
                 else:
-                    current_segment += segment
-                current_text += text
-            else:
-                # 保存当前合并的音频片段和文本
-                if current_segment is not None and len(current_segment) > 3000:
-                    self.save_segment(
-                        current_segment,
-                        current_text,
-                        current_speaker,
-                        current_start_time,
-                        output_dir,
-                    )
+                    # 保存当前合并的音频片段和文本
+                    if current_segment is not None and len(current_segment) > 3000:
+                        self.save_segment(
+                            current_segment,
+                            current_text,
+                            current_speaker,
+                            current_start_time,
+                            output_dir,
+                        )
 
-                # 开始新的音频片段
-                current_speaker = speaker
-                current_segment = segment
-                current_text = text
-                current_start_time = start_time
+                    # 开始新的音频片段
+                    current_speaker = speaker
+                    current_segment = segment
+                    current_text = text
+                    current_start_time = start_time
 
-        # 保存最后一个合并的音频片段和文本
-        if current_segment is not None and len(current_segment) > 3000:
-            self.save_segment(
-                current_segment,
-                current_text,
-                current_speaker,
-                current_start_time,
-                output_dir,
-            )
+            # 保存最后一个合并的音频片段和文本
+            if current_segment is not None and len(current_segment) > 3000:
+                self.save_segment(
+                    current_segment,
+                    current_text,
+                    current_speaker,
+                    current_start_time,
+                    output_dir,
+                )
 
         logger.info(f"提取分类说话人完成，输出目录：{output_dir}")
         if self.is_delete_last_input:
             logger.info(f"【classifyStrategy】删除输入目录: {input_audio_path}")
-            shutil.rmtree(wav_file_path)
+            shutil.rmtree(input_audio_path)
         return output_dir
 
     def save_segment(self, segment, text, speaker, start_time, output_dir):
@@ -166,10 +181,9 @@ if __name__ == "__main__":
     from tool import get_project_root
 
     root_path = get_project_root()  # 获取项目根目录
-    model_weights_root = f"{root_path}/uvr5/uvr5_weights"  # 模型权重根路径
-    timestamp = "20240726_105018"
+    timestamp = "20240729_154102"
     device = "cuda" if torch.cuda.is_available() else "cpu"  # 选择设备（GPU或CPU）
     classify_strategy = ClassifyAudioStrategy(root_path, timestamp, device, False)
     classify_strategy.process(
-        "/root/code/AudioMatic/process/VR-DeEchoAggressive_vocal/20240726_105018"
+        "/root/code/AudioMatic/process/VR-DeEchoAggressive_vocal/20240729_154102"
     )
