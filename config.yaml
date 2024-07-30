@@ -1,5 +1,5 @@
 ﻿classify:
-  batch_size_s: 60 # 秒
+  batch_size_s: 300 # 秒
 
 cut:
   max_segment_duration: 10 # 分钟
