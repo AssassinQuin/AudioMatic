@@ -17,7 +17,8 @@ def initialize_strategies(root_path, model_weights_root, timestamp, device):
     1. 将音频文件转换为wav格式
     2. 切割音频文件，把长文件切割为较短文件，若显存不足/较多 可以酌情切割
     3. 提取人声
-    4. 分类说话人
+    4. 合并 wav 文件
+    5. 分类说话人
     """
     # 将音频文件转换为wav格式策略
     convert_to_wav_strategy = ConvertToWavStrategy(root_path, timestamp)
@@ -31,7 +32,8 @@ def initialize_strategies(root_path, model_weights_root, timestamp, device):
     )
     # 分类说话人策略
     classify_strategy = ClassifyAudioStrategy(root_path, timestamp, device)
-    # 返回顺序是执行顺序
+
+    # 返回顺序是执行顺序，可以修改替换策略
     return [
         convert_to_wav_strategy,
         cut_strategy,
@@ -53,11 +55,6 @@ def setup_processor_chain(strategies):
         current_processor.set_next(next_processor)
         current_processor = next_processor
     return processor
-
-
-def process_audio(input_audio_path, processor):
-    """处理音频文件"""
-    processor.process(input_audio_path)
 
 
 def main(input_audio_path):
@@ -85,7 +82,7 @@ def main(input_audio_path):
     # 设置处理器链
     processor = setup_processor_chain(strategies)
     # 处理音频文件
-    process_audio(input_audio_path, processor)
+    processor.process(input_audio_path)
 
 
 if __name__ == "__main__":
